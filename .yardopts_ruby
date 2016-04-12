@@ -1,4 +1,3 @@
 --no-output
 --use-cache .yardoc 
 *.c
-lib/**/*.rb
