@@ -7,22 +7,6 @@
         "rubygem",
         "ruby"
       ]
-    },
-    {
-      "Subcmd": "graph",
-      "Op": "graph",
-      "SourceUnitTypes": [
-        "rubygem",
-        "ruby"
-      ]
-    },
-    {
-      "Subcmd": "depresolve",
-      "Op": "depresolve",
-      "SourceUnitTypes": [
-        "rubygem",
-        "ruby"
-      ]
     }
   ]
 }
