@@ -40,10 +40,12 @@ module Srclib
 
       source_units = find_gems('.').map do |gemspec, gem|
         Dir.chdir(File.dirname(gemspec))
+        deps = gem[:dependencies] || []
         if File.exist?("Gemfile")
-          deps = Bundler.definition.dependencies.map{ |d| [d.name, d.requirement.to_s] }
+          deps.concat(Bundler.definition.dependencies)
         end
-
+        #dont add dep if gemspec name is in gemfile deps (duplicate)
+        deps = deps.map{|dep| [dep.name, dep.requirement.to_s] if dep_is_valid(dep)}.compact
         gem_dir = Pathname.new(gemspec).relative_path_from(pre_wd).parent
 
         gem.delete(:date)
@@ -55,8 +57,10 @@ module Srclib
           'Name' => gem[:name],
           'Type' => 'rubygem',
           'Dir' => gem_dir,
+          'Licenses' => gem[:licenses],
+          'License' => gem[:license],
           'Files' => gem[:files].sort.map { |f| gem_dir == "." ? f : File.join(gem_dir, f) },
-          'Dependencies' => (deps and deps.sort), #gem[:dependencies], # TODO(sqs): what to do with the gemspec deps?
+          'Dependencies' => (deps and deps.sort),
           'Data' => gem,
           'Ops' => {'depresolve' => nil, 'graph' => nil},
         }
@@ -80,7 +84,7 @@ module Srclib
         # If scripts were found, append to the list of source units
         if scripts.length > 0
           if File.exist?("Gemfile")
-            deps = Bundler.definition.dependencies.map{ |d| [d.name, d.requirement.to_s] }
+            deps = Bundler.definition.dependencies.map{|dep| [dep.name, dep.requirement.to_s] if dep_is_valid(dep)}.compact
           end
 
           source_units << {
@@ -114,39 +118,17 @@ module Srclib
       scripts = []
 
       dir = File.expand_path(dir)
-      Dir.glob(File.join(dir, "**/*.rb")).map do |script_file|
+      Dir.glob(File.join(dir, "**/*.rb")).reject{|f| f["/spec/"] || f["/specs/"] || f["/test/"] || f["/tests/"]}.map do |script_file|
         scripts << script_file
       end
 
       scripts
     end
 
-    # Given the content of a script, finds all of its dependant gems
-    # @param script_code [String] Content of the script
-    # @return [Array] The dependency array.
-    def script_deps(script_code)
-      # Get a list of all installed gems
-      installed_gems = `gem list`.split(/\n/).map do |line|
-        line.split.first.strip #TODO: Extract version number
-      end
-
-      deps = []
-      script_code.scan(/require\W["'](.*)["']/) do |required|
-        if installed_gems.include? required[0].strip
-          deps << [
-            required[0].strip,
-            ">= 0" #TODO: Should use the currently installed version number
-          ]
-        end
-      end
-
-      return deps
-    end
-
     def find_gems(dir)
       dir = File.expand_path(dir)
       gemspecs = {}
-      spec_files = Dir.glob(File.join(dir, "**/*.gemspec")).sort
+      spec_files = Dir.glob(File.join(dir, "**/*.gemspec")).reject{|f| f["/spec/"] || f["/specs/"] || f["/test/"] || f["/tests/"]}.sort
       spec_files.each do |spec_file|
         Dir.chdir(File.expand_path(File.dirname(spec_file), dir))
         spec = Gem::Specification.load(spec_file)
@@ -169,6 +151,18 @@ module Srclib
         end
       end
       gemspecs
+    end
+
+    # for gemspec, type is either :development or :runtime
+    # for Gemfile, groups are usually :test or :development
+    def dep_is_valid(dep)
+      is_dev_type = dep.type == "development"
+      is_dev_group = false
+      if dep.groups
+        is_dev_group = (dep.groups.include?(:development) || dep.groups.include?(:test))
+      end
+
+      return (!is_dev_group && !is_dev_type)
     end
   end
 end
