@@ -188,7 +188,7 @@ module Srclib
       curr_deps.each do |curr_dep|
         found_spec = curr_specs.detect {|spec| spec.name.to_s == curr_dep.name.to_s}
         dep_to_push = OpenStruct.new
-        scope = []
+        #scope = []
         if found_spec
           dep_to_push.name = found_spec.name
           dep_to_push.version = found_spec.version
@@ -196,12 +196,13 @@ module Srclib
           dep_to_push.name = curr_dep.name
           dep_to_push.version = curr_dep.requirement
         end
-        scope = curr_dep.groups if curr_dep.groups
-        dep_to_push.scope = scope
+        #scope = curr_dep.groups if curr_dep.groups
+        #dep_to_push.scope = scope
 
         all_deps.push(dep_to_push)
       end
-      return all_deps.map {|dep| {:name => dep.name, :version => dep.version, :scope => dep.scope}}.sort{|a, b| a[:name] <=> b[:name]}
+      #return all_deps.map {|dep| {:name => dep.name, :version => dep.version, :scope => dep.scope}}.sort{|a, b| a[:name] <=> b[:name]}
+      return all_deps.map {|dep| {:name => dep.name, :version => dep.version}}.sort{|a, b| a[:name] <=> b[:name]}
     end
   end
 end
