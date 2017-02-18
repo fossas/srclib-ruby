@@ -4,6 +4,7 @@ require 'bundler'
 require 'pathname'
 require 'set'
 require 'ostruct'
+require_relative '../../ruby-2.2.2/ext/psych/lib/psych.rb'
 
 module Srclib
   class Scan
@@ -34,11 +35,11 @@ module Srclib
       option_parser.order!(args)
       raise "no args may be specified to scan (got #{args.inspect}); it only scans the current directory" if args.length != 0
 
-      pre_wd = Pathname.pwd
+      @pre_wd = Pathname.pwd
       analyzed_gemfiles = []
 
       all_gemspecs = find_gems('.')
-      all_gemspec_names = all_gemspecs.map{ |gemspec, gem| gem[:name] } # these won't be added as deps
+      @all_gemspec_names = all_gemspecs.map{ |gemspec, gem| gem[:name] } # these won't be added as deps
 
       source_units = all_gemspecs.map do |gemspec, gem|
         Dir.chdir(File.dirname(gemspec))
@@ -53,7 +54,7 @@ module Srclib
         #Filter: dont add dev dependencies, or redundant deps (deps with names of gemspec files)
         valid_deps = []
         dep_groups.each do |dep_name, dep_group|
-          next if all_gemspec_names.include?(dep_name)
+          next if @all_gemspec_names.include?(dep_name)
           is_valid = true
           dep_group.each do |dep|
             next if !is_valid
@@ -63,14 +64,14 @@ module Srclib
         end
 
         files = find_scripts(File.dirname(gemspec)).map do |script_path|
-          Pathname.new(script_path).relative_path_from(pre_wd)
+          Pathname.new(script_path).relative_path_from(@pre_wd)
         end
         files.push(".") # Hack: This is so this gets elected as top level over find_scripts below
 
         locked_deps = get_locked_dep_versions(valid_deps, gem)
-        gem.delete(:date)
+
         gem[:dependencies] = locked_deps
-        gem_dir = Pathname.new(gemspec).relative_path_from(pre_wd).parent
+        gem_dir = Pathname.new(gemspec).relative_path_from(@pre_wd).parent
 
         {
           'Name' => gem[:name],
@@ -88,9 +89,9 @@ module Srclib
 
       # Ignore standard library
       if @opt[:repo] != "github.com/ruby/ruby"
-        Dir.chdir(pre_wd) # Reset working directory to initial root
+        Dir.chdir(@pre_wd) # Reset working directory to initial root
         scripts = find_scripts('.').map do |script_path|
-          Pathname.new(script_path).relative_path_from(pre_wd)
+          Pathname.new(script_path).relative_path_from(@pre_wd)
         end
 
         scripts.sort! # For testing consistency
@@ -98,7 +99,7 @@ module Srclib
         # If scripts were found, append to the list of source units
         if scripts.length > 0
           if File.exist?("Gemfile") && !analyzed_gemfiles.include?(File.expand_path("Gemfile"))
-            deps = Bundler.definition(true).dependencies.select{|dep| dep_is_valid(dep) && !all_gemspec_names.include?(dep.name)}
+            deps = Bundler.definition(true).dependencies.select{|dep| dep_is_valid(dep) && !@all_gemspec_names.include?(dep.name)}
             locked_deps = get_locked_dep_versions(deps, nil)
           end
 
@@ -118,11 +119,24 @@ module Srclib
         end
       end
 
+      # If there is no *.gemspec file in the root, check for metadata or metadata.gz file (from an unzipped .gem file)
+      root_files = Dir.entries(@pre_wd).select {|f| !File.directory? f}
+      if !root_files.any? {|f| f.match(/.gemspec$/) }
+        metadata_files = root_files.select {|f| f.to_s == "metadata.gz"}
+        if !metadata_files.empty?
+          metadata_file = metadata_files[0] #pick first one
+          metadata_source_unit = parse_metadata_index_to_source_unit(metadata_file) rescue nil
+          source_units << metadata_source_unit if metadata_source_unit
+        end
+      end
+
       puts JSON.generate(source_units.sort_by { |a| a['Name'] })
     end
 
     def initialize
       @opt = {}
+      @all_gemspec_names = []
+      @pre_wd = nil
     end
 
     private
@@ -148,24 +162,27 @@ module Srclib
         Dir.chdir(File.expand_path(File.dirname(spec_file), dir))
         spec = Gem::Specification.load(spec_file) rescue nil
         if spec
-          spec.normalize
-          o = {}
-          spec.class.attribute_names.find_all do |name|
-            v = spec.instance_variable_get("@#{name}")
-            o[name] = v if v
-          end
-          if o[:files]
-            o[:files].sort!
-          end
-          if o[:metadata] && o[:metadata].empty?
-            o.delete(:metadata)
-          end
-          o.delete(:rubygems_version)
-          o.delete(:specification_version)
-          gemspecs[spec_file] = o
+          gemspecs[spec_file] = gemspec_to_source_unit(spec)
         end
       end
       gemspecs
+    end
+
+    def gemspec_to_source_unit(spec)
+      spec.normalize
+      o = {}
+      spec.class.attribute_names.find_all do |name|
+        next if name.to_s == 'date'
+        v = spec.instance_variable_get("@#{name}")
+        o[name] = v if v
+      end
+      if o[:metadata] && o[:metadata].empty?
+        o.delete(:metadata)
+      end
+      o.delete(:rubygems_version)
+      o.delete(:specification_version)
+
+      return o
     end
 
     # for gemspec, type is either :development or :runtime
@@ -203,6 +220,46 @@ module Srclib
       end
       #return all_deps.map {|dep| {:name => dep.name, :version => dep.version, :scope => dep.scope}}.sort{|a, b| a[:name] <=> b[:name]}
       return all_deps.map {|dep| {:name => dep.name, :version => dep.version}}.sort{|a, b| a[:name] <=> b[:name]}
+    end
+
+    # This takes a metadata.gz file (from unzipped .gem file) and turns it into a source unit
+    def parse_metadata_index_to_source_unit(metadata_file)
+      metadata_content = nil
+      File.open(metadata_file) do |f|
+        if metadata_file == 'metadata.gz'
+          meta = Zlib::GzipReader.new(f)
+          metadata_content = meta.read
+          meta.close
+        end
+      end
+
+      return nil if !metadata_content 
+
+      metadata_gemspec = Psych.load(metadata_content)
+      gem = gemspec_to_source_unit(metadata_gemspec)
+      
+      deps = gem[:dependencies] || []
+      #Filter: dont add dev dependencies, or redundant deps (deps with names of gemspec files)
+      
+      valid_deps = deps.select{|dep| dep_is_valid(dep) && !@all_gemspec_names.include?(dep.name)}
+      locked_deps = get_locked_dep_versions(valid_deps, gem)
+      gem[:dependencies] = locked_deps
+      
+      files = find_scripts(File.dirname(metadata_file)).map do |script_path|
+        Pathname.new(script_path).relative_path_from(@pre_wd)
+      end
+      files.push(".") # Hack: This is so this gets elected as top level over find_scripts
+
+      src_unit = {
+        'Name' => gem[:name],
+        'Version' => gem[:version],
+        'Type' => 'rubygem',
+        'Dir' => '.',
+        'Files' => files,
+        'Dependencies' => locked_deps,
+        'Data' => gem,
+        'Ops' => {'depresolve' => nil, 'graph' => nil},
+      }
     end
   end
 end
