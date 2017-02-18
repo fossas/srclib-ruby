@@ -226,11 +226,9 @@ module Srclib
     def parse_metadata_index_to_source_unit(metadata_file)
       metadata_content = nil
       File.open(metadata_file) do |f|
-        if metadata_file == 'metadata.gz'
-          meta = Zlib::GzipReader.new(f)
-          metadata_content = meta.read
-          meta.close
-        end
+        meta = Zlib::GzipReader.new(f)
+        metadata_content = meta.read
+        meta.close
       end
 
       return nil if !metadata_content 
