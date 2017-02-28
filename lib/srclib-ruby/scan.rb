@@ -6,6 +6,8 @@ require 'set'
 require 'ostruct'
 require_relative '../../ruby-2.2.2/ext/psych/lib/psych.rb'
 
+STDOUT.sync = true # This is so there is no broken pipe issues
+
 module Srclib
   class Scan
     def self.summary
