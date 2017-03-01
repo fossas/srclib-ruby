@@ -6,8 +6,6 @@ require 'set'
 require 'ostruct'
 require_relative '../../ruby-2.2.2/ext/psych/lib/psych.rb'
 
-STDOUT.sync = true # This is so there is no broken pipe issues
-
 module Srclib
   class Scan
     def self.summary
@@ -132,7 +130,8 @@ module Srclib
         end
       end
 
-      puts JSON.generate(source_units.sort_by { |a| a['Name'] })
+      $stdout.puts JSON.generate(source_units.sort_by { |a| a['Name'] })
+      $stdout.flush
     end
 
     def initialize
