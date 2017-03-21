@@ -6,6 +6,21 @@ require 'set'
 require 'ostruct'
 require_relative '../../ruby-2.2.2/ext/psych/lib/psych.rb'
 
+STDOUT.sync = true # This is so there is no broken pipe issues
+
+# Yanked from http://stackoverflow.com/questions/4459330/how-do-i-temporarily-redirect-stderr-in-ruby
+def capture_stdout
+  # The output stream must be an IO-like object. In this case we capture it in
+  # an in-memory IO object so we can return the string value. You can assign any
+  # IO object here.
+  previous_stdout, $stdout = $stdout, StringIO.new
+  yield
+  $stdout.string
+ensure
+  # Restore the previous value of stderr (typically equal to STDERR).
+  $stdout = previous_stdout
+end
+
 module Srclib
   class Scan
     def self.summary
@@ -99,7 +114,10 @@ module Srclib
         # If scripts were found, append to the list of source units
         if scripts.length > 0
           if File.exist?("Gemfile") && !analyzed_gemfiles.include?(File.expand_path("Gemfile"))
-            deps = Bundler.definition(true).dependencies.select{|dep| dep_is_valid(dep) && !@all_gemspec_names.include?(dep.name)}
+            deps = []
+            captured_output = capture_stdout do
+              deps = Bundler.definition(true).dependencies.select{|dep| dep_is_valid(dep) && !@all_gemspec_names.include?(dep.name)}
+            end
             locked_deps = get_locked_dep_versions(deps, nil)
           end
 
