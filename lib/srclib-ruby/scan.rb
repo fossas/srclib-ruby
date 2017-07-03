@@ -57,10 +57,14 @@ module Srclib
       @all_gemspec_names = all_gemspecs.map{ |gemspec, gem| gem[:name] } # these won't be added as deps
 
       source_units = all_gemspecs.map do |gemspec, gem|
+        gemspec_relative_path = Pathname.new(gemspec).relative_path_from(@pre_wd).to_s
         Dir.chdir(File.dirname(gemspec))
-        deps = gem[:dependencies] || []
+        deps = map_deps_to_source_unit_deps(gem[:dependencies] || [], gemspec_relative_path)
+
         if File.exist?("Gemfile")
-          deps = deps.concat(Bundler.definition(true).dependencies)
+          gemfile_relative_path = Pathname.new(File.expand_path("Gemfile")).relative_path_from(@pre_wd).to_s
+          gemfile_deps = map_deps_to_source_unit_deps(Bundler.definition(true).dependencies, gemfile_relative_path)
+          deps = deps.concat(gemfile_deps)
           analyzed_gemfiles.push(File.expand_path("Gemfile"))
         end
         #group by dep name. This is so we don't add two or more of the same dep
@@ -114,9 +118,11 @@ module Srclib
         # If scripts were found, append to the list of source units
         if scripts.length > 0
           if File.exist?("Gemfile") && !analyzed_gemfiles.include?(File.expand_path("Gemfile"))
+            gemfile_relative_path = Pathname.new(File.expand_path("Gemfile")).relative_path_from(@pre_wd).to_s
             deps = []
             captured_output = capture_stdout do
               deps = Bundler.definition(true).dependencies.select{|dep| dep_is_valid(dep) && !@all_gemspec_names.include?(dep.name)}
+              deps = map_deps_to_source_unit_deps(deps, gemfile_relative_path)
             end
             locked_deps = get_locked_dep_versions(deps, nil)
           end
@@ -216,6 +222,17 @@ module Srclib
       return (!is_dev_group && !is_dev_type)
     end
 
+    def map_deps_to_source_unit_deps (deps, path)
+      mapped_deps = deps.map do |dep|
+        new_dep = OpenStruct.new
+        new_dep.name = dep.name
+        new_dep.version = dep.requirement
+        new_dep.path = path
+        new_dep
+      end
+      mapped_deps
+    end
+
     # if there is a locked version from Gemfile.lock, then use that. Otherwise, return dep range
     # if gem given (gemspec found), don't return dep if it is itself the gemspec
     def get_locked_dep_versions(curr_deps, gem)
@@ -230,15 +247,16 @@ module Srclib
           dep_to_push.version = found_spec.version
         else
           dep_to_push.name = curr_dep.name
-          dep_to_push.version = curr_dep.requirement
+          dep_to_push.version = curr_dep.version
         end
+        dep_to_push.path = curr_dep.path
         #scope = curr_dep.groups if curr_dep.groups
         #dep_to_push.scope = scope
 
         all_deps.push(dep_to_push)
       end
       #return all_deps.map {|dep| {:name => dep.name, :version => dep.version, :scope => dep.scope}}.sort{|a, b| a[:name] <=> b[:name]}
-      return all_deps.map {|dep| {:name => dep.name, :version => dep.version}}.sort{|a, b| a[:name] <=> b[:name]}
+      return all_deps.map {|dep| {:name => dep.name, :version => dep.version, :path => dep.path}}.sort{|a, b| a[:name] <=> b[:name]}
     end
 
     # This takes a metadata.gz file (from unzipped .gem file) and turns it into a source unit
@@ -255,7 +273,7 @@ module Srclib
       metadata_gemspec = Psych.load(metadata_content)
       gem = gemspec_to_source_unit(metadata_gemspec)
       
-      deps = gem[:dependencies] || []
+      deps = map_deps_to_source_unit_deps(gem[:dependencies] || [], 'gemspec')
       #Filter: dont add dev dependencies, or redundant deps (deps with names of gemspec files)
       
       valid_deps = deps.select{|dep| dep_is_valid(dep) && !@all_gemspec_names.include?(dep.name)}
