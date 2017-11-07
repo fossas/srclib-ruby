@@ -185,12 +185,66 @@ module Srclib
       spec_files = Dir.glob(File.join(dir, "**/*.gemspec")).reject{|f| f["/spec/"] || f["/specs/"] || f["/test/"] || f["/tests/"]}.sort
       spec_files.each do |spec_file|
         Dir.chdir(File.expand_path(File.dirname(spec_file), dir))
-        spec = Gem::Specification.load(spec_file) rescue nil
+        spec = load_gemspec(spec_file)
         if spec
           gemspecs[spec_file] = gemspec_to_source_unit(spec)
         end
       end
       gemspecs
+    end
+
+    # This is licensed under the MIT License
+    # borrowed from Gem::Specification::load => https://github.com/rubygems/rubygems/blob/82719151049a17987989b089c5b0d81b1b8df507/lib/rubygems/specification.rb#L1171
+    def load_gemspec (spec_file_location)
+      begin 
+        spec_file_location = spec_file_location.dup.untaint
+        content = File.read spec_file_location
+        spec = eval_gemspec(content, spec_file_location)
+      rescue Exception => e
+        warn "Invalid gemspec in [#{spec_file_location}]: #{e}. Falling back to file string parse."
+        spec = load_gemspec_fallback(spec_file_location)
+      end
+      
+      spec
+    end
+
+    # here we construct our own gem spec file and eval
+    def load_gemspec_fallback (spec_file_location)
+      gemspec_add_dep_lines = []
+      new_gemspec = nil
+      begin
+        File.readlines(spec_file_location).each do |line|
+          if (line.include?("add_dependency") || line.include?("add_runtime_dependency")) then
+            gemspec_add_dep_lines << line
+          end
+        end
+
+        # construct a gemspec file
+        if !gemspec_add_dep_lines.empty?
+          new_gemspec = "Gem::Specification.new do |s|\n s.name = %q{#{spec_file_location}}\n#{gemspec_add_dep_lines.join("\n")} \nend"
+          full_eval_gemspec = eval_gemspec(new_gemspec, spec_file_location)
+          return full_eval_gemspec
+        end  
+      rescue Exception => ex
+        warn "Gem string parse fallback failed. #{ex}. Srclib will now skip this gemspec file"
+      end
+      
+      nil
+    end
+
+    # This is licensed under the MIT License
+    # borrowed from Gem::Specification::load => https://github.com/rubygems/rubygems/blob/82719151049a17987989b089c5b0d81b1b8df507/lib/rubygems/specification.rb#L1171
+    # Caller should handle error rescue logic
+    def eval_gemspec (content, spec_file_location)
+      content.untaint
+      spec = eval content, binding, spec_file_location
+
+      if Gem::Specification === spec
+        spec.loaded_from = File.expand_path spec_file_location.to_s
+        return spec
+      end
+      
+      nil
     end
 
     def gemspec_to_source_unit(spec)
