@@ -4,7 +4,7 @@ require 'bundler'
 require 'pathname'
 require 'set'
 require 'ostruct'
-require_relative '../../ruby-2.2.2/ext/psych/lib/psych.rb'
+require 'psych'
 
 STDOUT.sync = true # This is so there is no broken pipe issues
 
@@ -196,7 +196,7 @@ module Srclib
     # This is licensed under the MIT License
     # borrowed from Gem::Specification::load => https://github.com/rubygems/rubygems/blob/82719151049a17987989b089c5b0d81b1b8df507/lib/rubygems/specification.rb#L1171
     def load_gemspec (spec_file_location)
-      begin 
+      begin
         spec_file_location = spec_file_location.dup.untaint
         content = File.read spec_file_location
         spec = eval_gemspec(content, spec_file_location)
@@ -204,7 +204,7 @@ module Srclib
         warn "Invalid gemspec in [#{spec_file_location}]: #{e}. Falling back to file string parse."
         spec = load_gemspec_fallback(spec_file_location)
       end
-      
+
       spec
     end
 
@@ -224,11 +224,11 @@ module Srclib
           new_gemspec = "Gem::Specification.new do |s|\n s.name = %q{#{spec_file_location}}\n#{gemspec_add_dep_lines.join("\n")} \nend"
           full_eval_gemspec = eval_gemspec(new_gemspec, spec_file_location)
           return full_eval_gemspec
-        end  
+        end
       rescue Exception => ex
         warn "Gem string parse fallback failed. #{ex}. Srclib will now skip this gemspec file"
       end
-      
+
       nil
     end
 
@@ -243,7 +243,7 @@ module Srclib
         spec.loaded_from = File.expand_path spec_file_location.to_s
         return spec
       end
-      
+
       nil
     end
 
@@ -322,18 +322,18 @@ module Srclib
         meta.close
       end
 
-      return nil if !metadata_content 
+      return nil if !metadata_content
 
       metadata_gemspec = Psych.load(metadata_content)
       gem = gemspec_to_source_unit(metadata_gemspec)
-      
+
       deps = map_deps_to_source_unit_deps(gem[:dependencies] || [], 'gemspec')
       #Filter: dont add dev dependencies, or redundant deps (deps with names of gemspec files)
-      
+
       valid_deps = deps.select{|dep| dep_is_valid(dep) && !@all_gemspec_names.include?(dep.name)}
       locked_deps = get_locked_dep_versions(valid_deps, gem)
       gem[:dependencies] = locked_deps
-      
+
       files = find_scripts(File.dirname(metadata_file)).map do |script_path|
         Pathname.new(script_path).relative_path_from(@pre_wd)
       end
