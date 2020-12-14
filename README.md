@@ -1,4 +1,5 @@
 # srclib-ruby [![Build Status](https://travis-ci.org/sourcegraph/srclib-ruby.png?branch=master)](https://travis-ci.org/sourcegraph/srclib-ruby)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Ffossas%2Fsrclib-ruby.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Ffossas%2Fsrclib-ruby?ref=badge_shield)
 
 ## YARD
 
@@ -77,3 +78,7 @@ Ruby may not provide a default OpenSSL certificate authorities file. Thus, `srcl
 * Check whether Ruby stdlib works
 * Check whether xrefs work
 * Add Travis-CI test for `src test` test cases and YARD specs
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Ffossas%2Fsrclib-ruby.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Ffossas%2Fsrclib-ruby?ref=badge_large)
